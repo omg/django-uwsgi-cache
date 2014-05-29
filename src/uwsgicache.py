@@ -1,7 +1,6 @@
 """uWSGI cache backend"""
 
 from django.core.cache.backends.base import BaseCache, InvalidCacheBackendError
-from django.utils.encoding import smart_str
 from django.conf import settings
 
 try:
@@ -11,7 +10,7 @@ except ImportError:
 
 try:
     import uwsgi
-except:
+except ImportError:
     if getattr(settings, "UWSGI_CACHE_FALLBACK", True):
         uwsgi = None
     else:
@@ -23,41 +22,34 @@ except:
 
 if uwsgi:
     class UWSGICache(BaseCache):
-        def __init__(self, server, params):
+        def __init__(self, location, params):
             BaseCache.__init__(self, params)
-            self._cache = uwsgi
-            self._server = server
+            self._location = location
 
-        def exists(self, key):
-            return self._cache.cache_exists(smart_str(key), self._server)
+        def has_key(self, key, version=None):
+            key = self.make_key(key, version)
+            return uwsgi.cache_exists(key, self._location)
 
         def add(self, key, value, timeout=0, version=None):
-            key = self.make_key(key, version=version)
-            if self.exists(key):
+            key = self.make_key(key, version)
+            if uwsgi.cache_exists(key, self._location):
                 return False
-            return self.set(key, value, timeout, self._server)
+            uwsgi.cache_set(key, value, timeout, self._location)
 
         def get(self, key, default=None, version=None):
-            key = self.make_key(key, version=version)
-            val = self._cache.cache_get(smart_str(key), self._server)
-            if val is None:
-                return default
-            val = smart_str(val)
-            return pickle.loads(val)
+            key = self.make_key(key, version)
+            val = uwsgi.cache_get(key, self._location)
+            return default if val is None else pickle.loads(val)
 
         def set(self, key, value, timeout=0, version=None):
-            key = self.make_key(key, version=version)
-            self._cache.cache_update(smart_str(key), pickle.dumps(value), timeout, self._server)
+            key = self.make_key(key, version)
+            uwsgi.cache_update(key, pickle.dumps(value), timeout, self._location)
 
         def delete(self, key, version=None):
-            key = self.make_key(key, version=version)
-            self._cache.cache_del(smart_str(key), self._server)
-
-        def close(self, **kwargs):
-            pass
+            key = self.make_key(key, version)
+            uwsgi.cache_del(key, self._location)
 
         def clear(self):
-            pass
+            uwsgi.cache_clear (self._location)
 else:
     from django.core.cache.backends.locmem import LocMemCache as UWSGICache
-    from django.core.cache.backends import locmem
